@@ -1,0 +1,22 @@
+# This is a configuration file for git pre-commit hooks.
+# The hooks are run before commiting changes to git.
+# To install the hooks,
+#     first install: `pip install pre-commit`
+#     then install hooks: `pre-commit install` n the root directory of the repo.
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.0.1
+    hooks:
+      - id: trailing-whitespace
+      # You can add other hooks here as well se repo url
+
+  - repo: local
+    hooks:
+      - id: nbstripout
+        name: nbstripout
+        entry: nbstripout
+        language: system
+        types: [jupyter]
+        require_serial: true
+        description: This hook strips output from Jupyter notebooks.
