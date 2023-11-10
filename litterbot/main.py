@@ -1,7 +1,7 @@
 import time
 from threading import Lock
 from robotics import Robot
-from camera import Camera, capture
+from camera import Camera, camera_config
 from models import CollisionAvoidance, PathFinder
 from traitlets import HasTraits, Float
 from utils import Sliders
@@ -15,13 +15,13 @@ class CentralController(Sliders):
         try:
             self.has_collision_avoidance    = collision_avoidance
             self.has_path_finder            = path_finder
-            self.robot                  = Robot()
-            self.camera                 = Camera(capture(816, 616))
-            self.process_lock           = Lock()
-            self.collision_avoidance    = CollisionAvoidance("data/collision_avoidance.pth", "alexnet")
-            self.path_finder            = PathFinder("data/path_finder.pth", "resnet18")
-            self.angle_last             = 0.0
-            self.integral_error         = 0.0
+            self.robot                      = Robot()
+            self.camera                     = Camera(config=camera_config(fps=5))
+            self.process_lock               = Lock()
+            self.collision_avoidance        = CollisionAvoidance("data/collision_avoidance_2.pth", "alexnet")
+            self.path_finder                = PathFinder("data/path_finder.pth", "resnet18")
+            self.angle_last                 = 0.0
+            self.integral_error             = 0.0
 
         except Exception:
             self.cleanup()
@@ -42,7 +42,7 @@ class CentralController(Sliders):
             if path_is_blocked and self.has_path_finder:
                 self.robot.left(speed=self.speed)
                 return
-            elif not path_is_blocked and not self.has_path_finder:
+            elif not path_is_blocked and self.has_path_finder:
                 self.robot.forward(speed=self.speed)
 
             if self.has_path_finder:
