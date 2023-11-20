@@ -72,8 +72,8 @@ class Robot(SingletonConfigurable):
 
     # For odometry
     movement_active     = Bool(default_value=False)
-    wheel_circumference = Float(default_value=0.0) # TODO: in meters 
-    wheelbase           = Float(default_value=0.0) # TODO: in meters
+    wheel_circumference = Float(default_value=np.pi * 0.065)
+    wheelbase           = Float(default_value=0.13)
 
     # config
     i2c_bus             = Integer(default_value=1).tag(config=True)
@@ -99,6 +99,7 @@ class Robot(SingletonConfigurable):
         self.left_motor.value   = speed
         self.right_motor.value  = speed
 
+    @duration
     def backward(self, speed=default_speed, duration=None):
         self.left_motor.value   = -speed
         self.right_motor.value  = -speed

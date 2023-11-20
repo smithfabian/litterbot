@@ -34,8 +34,8 @@ class CentralController(Sliders):
             self.theta                      = 0  # Orientation angle in radians
             self.path                       = []
 
-            self.robot.motor_left.observe(self.on_motor_value_change, names='value')
-            self.robot.motor_right.observe(self.on_motor_value_change, names='value')
+            self.robot.left_motor.observe(self.on_motor_value_change, names='value')
+            self.robot.right_motor.observe(self.on_motor_value_change, names='value')
 
         except Exception:
             self.cleanup()
@@ -141,16 +141,20 @@ class CentralController(Sliders):
         # Calculate the distance traveled by each wheel
         left_distance = self.robot.wheel_circumference * left_speed * duration
         right_distance = self.robot.wheel_circumference * right_speed * duration
+        delta_theta = (right_distance - left_distance) / self.robot.wheelbase
 
         # straight line motion
         if left_speed == right_speed:
             delta_x = left_distance * math.cos(self.theta)
             delta_y = left_distance * math.sin(self.theta)
+            delta_theta = 0
+            
 
         # pivot turn (oposite wheel directions and same speed)
         elif left_speed == -right_speed:
             delta_x = 0
             delta_y = 0
+            # TODO: delta_theta correct?
         
         # complex turning motion (opposite wheel directions and different speeds)
         elif left_speed != -right_speed and ((left_speed > 0) ^ (right_speed > 0)):
@@ -166,11 +170,11 @@ class CentralController(Sliders):
 
             # Update the robot's orientation
             self.theta += angle
+            # TODO: delta_theta correct?
 
         # simple turning motion (same wheel directions and different speeds)
         else:
             # Calculate the change in orientation
-            delta_theta = (right_distance - left_distance) / self.robot.wheelbase
             average_theta = self.theta + delta_theta / 2 # Average orientation during the motion
             delta_x = left_distance * math.cos(average_theta)
             delta_y = left_distance * math.sin(average_theta)
