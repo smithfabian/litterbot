@@ -20,6 +20,7 @@ CELL_SIZE = 0.15 # 15cm
 class CentralController(Sliders):
     def __init__(self, collision_avoidance=True, path_finder=True, **kwargs):
         super().__init__(**kwargs)
+        logger.debug("CentralController class initializing")
         try:
             self.has_collision_avoidance    = collision_avoidance
             self.has_path_finder            = path_finder
@@ -33,8 +34,11 @@ class CentralController(Sliders):
             self.map                        = np.zeros((ROWS, COLS), dtype=np.uint8)
             self.last_update_time           = None # For tracking distance and time
             # Initialize position and orientation
+            self.left_speed_old             = None
+            self.right_speed_old            = None
             self.x                          = 0 
             self.y                          = 0
+            self.goal                       = None
             self.theta                      = 0  # Orientation angle in radians
             self.path                       = []
 
@@ -55,16 +59,19 @@ class CentralController(Sliders):
                 path_is_blocked = False
 
             if path_is_blocked and self.has_path_finder:
+                logger.debug("Path is blocked")
                 self.path = self.get_path_around_obsticle()
-                self.turn_to_node(self.path)                
-
+                logger.debug(f"Found a new path around object: {self.path}")
+                self.turn_to_node(self.path)  
                 return # start over to check if path is blocked
             
             elif path_is_blocked and not self.has_path_finder:
+                logger.debug("Path is blocked, turning left")
                 self.robot.left()
                 self.on_motor_value_change(left_speed=0, right_speed=self.robot.default_speed)
             
             elif not path_is_blocked and self.path:
+                logger.debug(f"Driving to next A* path node")
                 # # Alternative implementation: Paint line on image and use line follower
                 # image = paint_line(image, self.map, self.path, (self.x, self.y), self.theta)
                 
@@ -78,11 +85,12 @@ class CentralController(Sliders):
                 self.turn_to_node(self.path)
                 return
 
-            else: # not path_is_blocked and self.has_path_finder:
+            elif not path_is_blocked and not self.has_path_finder:
+                logger.debug("Free path, driving forward")
                 self.robot.forward()
-                self.on_motor_value_change(self.robot.default_speed, self.robot.default_speed)
 
-            if self.has_path_finder:
+            else: # self.has_path_finder:
+                logger.debug("Free path, folowing line")
                 # These needs to be tuned
                 P_gain = getattr(self, "p_gain", 0.1)
                 I_gain = getattr(self, "i_gain", 0.0)
@@ -105,17 +113,20 @@ class CentralController(Sliders):
 
                 steering = PID + steering_bias
 
-                print(f"Angle: {angle}, P: {P}, I: {I}, D: {D}, PID: {PID}, Steering: {steering}")
-
-                self.robot.left_motor.value = max(min(min_speed + steering, 1.0), 0.0)
-                self.robot.right_motor.value = max(min(min_speed - steering, 1.0), 0.0)
-
+                logger.debug(f"Angle: {round(angle, 3)}, P: {P}, I: {I}, D: {D}, PID: {PID}, Steering: {steering}")
+                
+                left_speed = max(min(min_speed + steering, 1.0), 0.0)
+                right_speed = max(min(min_speed - steering, 1.0), 0.0)
+                self.robot.set_motors(left_speed, right_speed)
+                self.on_motor_value_change(left_speed=left_speed, right_speed=right_speed)
+                
                 if self.robot.left_motor.value >= 1.0 or self.robot.right_motor.value <= 0.0:
                     self.integral = 0 # anti-windup reset on integral error
         finally:
             self.process_lock.release()
 
     def get_path_around_obsticle(self):
+        logger.debug("Getting path around object")
         # Register obsticle
         obstacle_x = int(round(self.x + np.cos(self.theta)))
         obstacle_y = int(round(self.y + np.sin(self.theta)))
@@ -138,24 +149,24 @@ class CentralController(Sliders):
         # might need to be called in asynchronously 
         current_time = time.time()
         
-        if left_speed and right_speed:
+        if left_speed is not None and right_speed is not None:
             self.left_speed_old = left_speed
             self.right_speed_old = right_speed
             
         if self.last_update_time is not None:
             duration = current_time - self.last_update_time
-            self.update_position(self.left_speed_old, self.right_speed_old, duration)
+            self._update_position(self.left_speed_old, self.right_speed_old, duration)
             
         if left_speed == 0 and right_speed == 0:
             self.last_update_time = None
         else:
             self.last_update_time = current_time
 
-    def update_position(self, left_speed, right_speed, duration):
+    def _update_position(self, left_speed, right_speed, duration):
         left_speed  = self.robot.meter_per_second(left_speed)
         right_speed = self.robot.meter_per_second(right_speed)
         
-        logger.debug(f"Updating position: left_speed={left_speed}, right_speed={right_speed}, duration={duration}")
+        logger.debug(f"Updating position: left_speed={round(left_speed, 2)}, right_speed={round(right_speed, 2)}, duration={round(duration, 2)}")
         # Calculate the distance traveled by each wheel
         left_distance  = left_speed * duration
         right_distance = right_speed * duration
@@ -186,34 +197,35 @@ class CentralController(Sliders):
         self.x += delta_x # / CELL_SIZE
         self.y += delta_y # / CELL_SIZE
         self.theta = (self.theta + delta_theta) % (2 * np.pi)
-        logger.debug(f"New position: x={self.x}, y={self.y}, theta={self.theta}")
+        logger.debug(f"New position: x={round(self.x, 2)}, y={round(self.y, 2)}, theta={round(self.theta, 3)}")
 
     def turn_to_node(self, node):
-        node = self.path.pop()
-        angle = np.arctan2(node[1] * CELL_SIZE - self.x, node[0] * CELL_SIZE - self.y)
-        delta_angle = angle - self.theta
+        try:
+            node = self.path.pop()
+            logger.debug(f"Turning to next A* path node: {node}")
+        except IndexError:
+            logger.debug(f"Reached the A* path goal node")
+            self.goal = None
+            return
 
-        # decide if turning left or right is faster
+        target_angle = np.arctan2(node[1] * CELL_SIZE - self.y, node[0] * CELL_SIZE - self.x)
+        delta_angle = (target_angle - self.theta + np.pi) % (2 * np.pi) - np.pi
+
         angular_speed = self.robot.meter_per_second(self.robot.default_speed) / self.robot.wheelbase
+        t = abs(delta_angle) / angular_speed
 
-        if delta_angle > np.pi:
-            # turn left
-            delta_angle -= 2 * np.pi 
-            t = abs(delta_angle) / angular_speed
-            self.robot.left()
-            self.on_motor_value_change(left_speed=0, right_speed=self.robot.default_speed)
+        if delta_angle < 0:
+            self.robot.right()
+            self.on_motor_value_change(left_speed=self.robot.default_speed, right_speed=-self.robot.default_speed)
         else:
-            # turn right
-            delta_angle += 2 * np.pi
-            t = abs(delta_angle) / angular_speed
-            self.right()
-            self.on_motor_value_change(left_speed=self.robot.default_speed, right_speed=0)
+            self.robot.left()
+            self.on_motor_value_change(left_speed=-self.robot.default_speed, right_speed=self.robot.default_speed)
 
         time.sleep(t)
-        self.robot.stop()
-        self.on_motor_value_change()
+        self.robot.forward()
+        self.on_motor_value_change(left_speed=self.robot.default_speed, right_speed=self.robot.default_speed)
 
-    def start(self):
+    def start(self):    
         self.camera.start()
         self.camera.observe(self._execute, names='value')
 
@@ -224,6 +236,16 @@ class CentralController(Sliders):
             pass # Observer was not registered
         self.robot.stop()
         self.camera.stop()
+        
+        self.map              = np.zeros((ROWS, COLS), dtype=np.uint8)
+        self.last_update_time = None # For tracking distance and time
+        self.left_speed_old   = None
+        self.right_speed_old  = None
+        self.x                = 0 
+        self.y                = 0
+        self.goal             = None
+        self.theta            = 0  # Orientation angle in radians
+        self.path             = []
 
     def cleanup(self):
         if getattr(self, "camera", None) is not None:

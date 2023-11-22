@@ -23,6 +23,7 @@ class Camera(SingletonConfigurable):
     capture_height  = Integer(default_value=616).tag(config=True)
 
     def __init__(self, config=None, **kwargs):
+        logger.debug("Camera class initialized")
         if config:
             self.update_config(config)
         super().__init__(**kwargs)
@@ -35,6 +36,7 @@ class Camera(SingletonConfigurable):
                 traceback.print_exc()
                 self.stop()
                 raise RuntimeError('Could not read image from camera.')
+            logger.debug("Opened GStreamer capture")
             self.value = image
             self.start()
         except:
@@ -67,16 +69,21 @@ class Camera(SingletonConfigurable):
         self._running = True
         if not self.cap.isOpened():
             self.cap.open(self._gst_str(), cv2.CAP_GSTREAMER)
+            logger.debug("Opened GStreamer capture")
         if not hasattr(self, 'thread') or not self.thread.isAlive():
             self.thread = threading.Thread(target=self._capture_frames)
             self.thread.start()
+            logger.debug(f"Thread ({self.thread.ident}) started for capturing frames")
 
     def stop(self):
         self._running = False
         if hasattr(self, 'cap'):
             self.cap.release()
+            logger.debug(f"GStreamer capture released")
         if hasattr(self, 'thread'):
+            thread_id = self.thread.ident
             self.thread.join()
+            logger.debug(f"Thread ({thread_id}) joined with parent")
 
     def restart(self):
         self.stop()

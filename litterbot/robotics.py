@@ -13,6 +13,15 @@ from utils import get_logger
 logger = get_logger(__name__, __file__)
 
 
+def get_default_speed(method):
+    """Decorator function that pass default speed as speed argument if speed is None"""
+    def wrapper(self, speed=None, *args, **kwargs):
+        if speed is None:
+            speed = self.default_speed
+        return method(self, speed, *args, **kwargs)
+    return wrapper
+
+
 class Motor(Configurable):
 
     value   = Float()
@@ -75,9 +84,10 @@ class Robot(SingletonConfigurable):
     left_motor_alpha    = Float(default_value=1.0).tag(config=True)
     right_motor_channel = Integer(default_value=2).tag(config=True)
     right_motor_alpha   = Float(default_value=1.0).tag(config=True)
-    default_speed       = Float(default_value=0.2).tag(config=True)
+    default_speed       = Float(default_value=0.08).tag(config=True)
     
     def __init__(self, *args, **kwargs):
+        logger.debug("Robot class initialized")
         super(Robot, self).__init__(*args, **kwargs)
         self.motor_driver   = Adafruit_MotorHAT(i2c_bus=self.i2c_bus)
         self.left_motor     = Motor(self.motor_driver, channel=self.left_motor_channel, alpha=self.left_motor_alpha)
@@ -86,26 +96,36 @@ class Robot(SingletonConfigurable):
     def set_motors(self, left_speed, right_speed):
         self.left_motor.value   = left_speed
         self.right_motor.value  = right_speed
-
-    def forward(self, speed=default_speed):
+        logger.debug(f"Left motor: {left_speed}, right motor: {right_speed}")
+    
+    @get_default_speed
+    def forward(self, speed=None):
         self.left_motor.value   = speed
         self.right_motor.value  = speed
+        logger.debug(f"Left motor: {speed}, right motor: {speed}")
 
-    def backward(self, speed=default_speed):
+    @get_default_speed
+    def backward(self, speed=None):
         self.left_motor.value   = -speed
         self.right_motor.value  = -speed
+        logger.debug(f"Left motor: {-speed}, right motor: {-speed}")
 
-    def left(self, speed=default_speed):
+    @get_default_speed
+    def left(self, speed=None):
         self.left_motor.value   = -speed
         self.right_motor.value  = speed
+        logger.debug(f"Left motor: {-speed}, right motor: {speed}")
 
-    def right(self, speed=default_speed):
+    @get_default_speed
+    def right(self, speed=None):
         self.left_motor.value   = speed
         self.right_motor.value  = -speed
+        logger.debug(f"Left motor: {speed}, right motor: {-speed}")
 
     def stop(self):
         self.left_motor.value   = 0
         self.right_motor.value  = 0
+        logger.debug(f"Left motor: 0, right motor: 0")
     
     @staticmethod
     def meter_per_second(motor_speed):

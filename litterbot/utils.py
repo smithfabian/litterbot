@@ -13,9 +13,9 @@ def get_logger(name, file):
     logger.setLevel(logging.DEBUG)
     log_dir = Path(file).parent / "logs"
     log_dir.mkdir(exist_ok=True)
-    file_log_handler = logging.FileHandler(log_dir / f"{name}.log")
+    file_log_handler = logging.FileHandler(log_dir / f"{name}.log", mode="w")
     # buffer_log_handler = logging.handlers.MemoryHandler(10, target=file_log_handler)
-    log_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    log_formatter = logging.Formatter('%(asctime)s.%(msecs)03d - %(levelname)-5s - %(funcName)s() - %(message)s', "%H:%M:%S")
     file_log_handler.setFormatter(log_formatter)
     logger.addHandler(file_log_handler)
     logger.propagate = False

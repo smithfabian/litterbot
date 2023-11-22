@@ -78,15 +78,16 @@ class ModelBase:
 class CollisionAvoidance(ModelBase):
     def __init__(self, model_path, model_type, pixel_range=255.0, RGB_mean=[0.485, 0.456, 0.406], RGB_stdev=[0.229, 0.224, 0.225], device=None):
         super().__init__(model_path, model_type, pixel_range, RGB_mean, RGB_stdev, device)
+        self.threshold = 0.7 
 
     def run(self, frame):
         frame = self.preprocess(frame)
         frame = self.model(frame)
         frame = F.softmax(frame, dim=1)
         prob_blocked = float(frame.flatten()[0])
-        print(f"Prob blocked: {prob_blocked}")
+        logger.debug(f"Prob blocked: {round(prob_blocked, 2)}")
         
-        if prob_blocked < 0.5:
+        if prob_blocked < self.threshold:
             return "forward"
         else:
             return "stop"
@@ -112,6 +113,6 @@ class PathFinder(ModelBase):
         x = output[0]
         y = (0.5 - output[1]) / 2.0
         angle = np.arctan2(x, y)
-        print(f"Angle: {angle}")
+        logger.debug(f"Angle: {round(angle, 3)}")
 
         return angle
