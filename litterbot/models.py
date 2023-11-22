@@ -6,6 +6,10 @@ import torch.nn.functional as F
 import torchvision.transforms as transforms
 import PIL.Image
 
+from utils import get_logger
+
+
+logger = get_logger(__name__, __file__)
 
 class ModelBase:
     def __init__(self, model_path, model_type, pixel_range=1.0, RGB_mean=[0,0,0], RGB_stdev=[0,0,0], device=None):

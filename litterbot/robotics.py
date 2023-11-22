@@ -7,16 +7,10 @@ from traitlets import Float, Instance, Integer, observe, Bool
 from Adafruit_MotorHAT import Adafruit_MotorHAT
 from traitlets.config.configurable import Configurable, SingletonConfigurable
 
+from utils import get_logger
 
-def duration(func):
-    @functools.wraps(func)
-    def wrapper(self, *args, **kwargs):
-        duration = kwargs.get('duration')
-        func(self, *args, **kwargs) 
-        if duration is not None:
-            time.sleep(duration)
-            self.stop()
-    return wrapper
+
+logger = get_logger(__name__, __file__)
 
 
 class Motor(Configurable):
@@ -89,58 +83,37 @@ class Robot(SingletonConfigurable):
         self.left_motor     = Motor(self.motor_driver, channel=self.left_motor_channel, alpha=self.left_motor_alpha)
         self.right_motor    = Motor(self.motor_driver, channel=self.right_motor_channel, alpha=self.right_motor_alpha)
 
-    @duration
-    def set_motors(self, left_speed, right_speed, duration=None):
+    def set_motors(self, left_speed, right_speed):
         self.left_motor.value   = left_speed
         self.right_motor.value  = right_speed
-    
-    @duration
-    def forward(self, speed=default_speed, duration=None):
+
+    def forward(self, speed=default_speed):
         self.left_motor.value   = speed
         self.right_motor.value  = speed
 
-    @duration
-    def backward(self, speed=default_speed, duration=None):
+    def backward(self, speed=default_speed):
         self.left_motor.value   = -speed
         self.right_motor.value  = -speed
 
-    @duration
-    def left(self, speed=default_speed, duration=None):
+    def left(self, speed=default_speed):
         self.left_motor.value   = -speed
         self.right_motor.value  = speed
 
-    @duration
-    def right(self, speed=default_speed, duration=None):
+    def right(self, speed=default_speed):
         self.left_motor.value   = speed
         self.right_motor.value  = -speed
 
     def stop(self):
         self.left_motor.value   = 0
         self.right_motor.value  = 0
-
-    def turn_to_node(self, position, orientation, node, speed=default_speed):
-        """Turns the robot to a given angle in radians"""
-        angle = math.atan2(node[1] - position[0], node[0] - position[1])
-        delta_angle = angle - orientation
-
-        # decide if turning left or right is faster
-        speed_mps = speed * 0.1 - 0.1 # m/s
-        angular_speed = (speed_mps) / self.wheelbase
-
-        if delta_angle > np.pi:
-            # turn left
-            delta_angle -= 2 * np.pi 
-            t = abs(delta_angle) / angular_speed
-            self.left(duration=t)
-        else:
-            # turn right
-            delta_angle += 2 * np.pi
-            t = abs(delta_angle) / angular_speed
-            self.right(duration=t)
-        return
     
     @staticmethod
     def meter_per_second(motor_speed):
-        return motor_speed * 1.8 - 0.04 # m/s
-
+        mps = max(np.abs(motor_speed) * 1.8 - 0.04, 0)
+        if 0 < motor_speed:
+            return mps
+        elif motor_speed < 0:
+            return -mps
+        else:
+            return 0
 

@@ -1,6 +1,3 @@
-import logging
-from logging import handlers
-from pathlib import Path
 import time
 from threading import Lock
 
@@ -11,19 +8,10 @@ from traitlets import HasTraits, Float
 from utils import Sliders
 import numpy as np
 
-from utils import create_grid, Node, astar, paint_line
+from utils import create_grid, Node, astar, paint_line, get_logger
 
 
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
-log_dir = Path(__file__).parent / "logs"
-log_dir.mkdir(exist_ok=True)
-file_log_handler = logging.FileHandler(log_dir / f"{__name__}.log")
-# buffer_log_handler = logging.handlers.MemoryHandler(10, target=file_log_handler)
-log_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-file_log_handler.setFormatter(log_formatter)
-logger.addHandler(file_log_handler)
-logger.propagate = False
+logger = get_logger(__name__, __file__)
 
 ROWS, COLS = 100, 100
 CELL_SIZE = 0.15 # 15cm
@@ -67,33 +55,32 @@ class CentralController(Sliders):
                 path_is_blocked = False
 
             if path_is_blocked and self.has_path_finder:
-                self.path = self._get_path_around_obsticle()
-                self.robot.turn_to_node((self.x, self.y), self.theta, self.path.pop())
-                self.on_motor_value_change()
+                self.path = self.get_path_around_obsticle()
+                self.turn_to_node(self.path)                
+
                 return # start over to check if path is blocked
             
             elif path_is_blocked and not self.has_path_finder:
-                self.robot.left(speed=self.speed)
-                self.on_motor_value_change()
+                self.robot.left()
+                self.on_motor_value_change(left_speed=0, right_speed=self.robot.default_speed)
             
             elif not path_is_blocked and self.path:
                 # # Alternative implementation: Paint line on image and use line follower
                 # image = paint_line(image, self.map, self.path, (self.x, self.y), self.theta)
                 
                 # robot is already turned towards next point
-                speed_mps = self.robot.meter_per_second(self.robot.default_speed)
-                t = CELL_SIZE / speed_mps
+                t = CELL_SIZE / self.robot.meter_per_second(self.robot.default_speed)
                 self.robot.forward()
-                self.on_motor_value_change(self.robot.left_motor.value, self.robot.right_motor.value)
+                self.on_motor_value_change(self.robot.default_speed, self.robot.default_speed)
                 time.sleep(t)
                 self.robot.stop()
                 self.on_motor_value_change()
-                # self.robot.turn_to_node((self.x, self.y), self.theta, self.path.pop())
+                self.turn_to_node(self.path)
                 return
 
             else: # not path_is_blocked and self.has_path_finder:
-                self.robot.forward(speed=self.speed)
-                self.on_motor_value_change()
+                self.robot.forward()
+                self.on_motor_value_change(self.robot.default_speed, self.robot.default_speed)
 
             if self.has_path_finder:
                 # These needs to be tuned
@@ -128,7 +115,7 @@ class CentralController(Sliders):
         finally:
             self.process_lock.release()
 
-    def _get_path_around_obsticle(self):
+    def get_path_around_obsticle(self):
         # Register obsticle
         obstacle_x = int(round(self.x + np.cos(self.theta)))
         obstacle_y = int(round(self.y + np.sin(self.theta)))
@@ -175,18 +162,21 @@ class CentralController(Sliders):
 
         # straight line motion
         if np.abs(left_distance - right_distance) < 1.0e-3:
+            logger.debug("Straight line motion")
             delta_theta = 0
             delta_x = left_distance * np.cos(self.theta)
             delta_y = left_distance * np.sin(self.theta)
 
         # pivot turn (oposite wheel directions and same speed)
         elif np.abs(left_distance + right_distance) < 1.0e-3:
+            logger.debug("Pivot turn")
             delta_theta = (right_distance - left_distance) / self.robot.wheelbase
             delta_x = 0
             delta_y = 0
         
         # complex turning motion
         else:
+            logger.debug("Complex turning motion")
             delta_theta = (right_distance - left_distance) / self.robot.wheelbase
             R = (self.robot.wheelbase / 2) * ((left_distance + right_distance) / (left_distance - right_distance))
             delta_x =  R * np.sin(delta_theta + self.theta) - R * np.sin(self.theta)
@@ -197,6 +187,31 @@ class CentralController(Sliders):
         self.y += delta_y # / CELL_SIZE
         self.theta = (self.theta + delta_theta) % (2 * np.pi)
         logger.debug(f"New position: x={self.x}, y={self.y}, theta={self.theta}")
+
+    def turn_to_node(self, node):
+        node = self.path.pop()
+        angle = np.arctan2(node[1] * CELL_SIZE - self.x, node[0] * CELL_SIZE - self.y)
+        delta_angle = angle - self.theta
+
+        # decide if turning left or right is faster
+        angular_speed = self.robot.meter_per_second(self.robot.default_speed) / self.robot.wheelbase
+
+        if delta_angle > np.pi:
+            # turn left
+            delta_angle -= 2 * np.pi 
+            t = abs(delta_angle) / angular_speed
+            self.robot.left()
+            self.on_motor_value_change(left_speed=0, right_speed=self.robot.default_speed)
+        else:
+            # turn right
+            delta_angle += 2 * np.pi
+            t = abs(delta_angle) / angular_speed
+            self.right()
+            self.on_motor_value_change(left_speed=self.robot.default_speed, right_speed=0)
+
+        time.sleep(t)
+        self.robot.stop()
+        self.on_motor_value_change()
 
     def start(self):
         self.camera.start()

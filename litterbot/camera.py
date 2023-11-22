@@ -6,6 +6,10 @@ import threading
 import numpy as np
 import traceback
 
+from utils import get_logger
+
+
+logger = get_logger(__name__, __file__)
 
 
 class Camera(SingletonConfigurable):

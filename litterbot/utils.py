@@ -1,10 +1,26 @@
 import heapq
 import time
+import logging
+from pathlib import Path
 
 import cv2
 import numpy as np
 from traitlets import HasTraits
 
+
+def get_logger(name, file):
+    logger = logging.getLogger(name)
+    logger.setLevel(logging.DEBUG)
+    log_dir = Path(file).parent / "logs"
+    log_dir.mkdir(exist_ok=True)
+    file_log_handler = logging.FileHandler(log_dir / f"{name}.log")
+    # buffer_log_handler = logging.handlers.MemoryHandler(10, target=file_log_handler)
+    log_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    file_log_handler.setFormatter(log_formatter)
+    logger.addHandler(file_log_handler)
+    logger.propagate = False
+
+    return logger
 
 def create_grid(rows, cols):
     """Create a grid of zeros."""
