@@ -138,5 +138,9 @@ class Robot(SingletonConfigurable):
             t = abs(delta_angle) / angular_speed
             self.right(duration=t)
         return
+    
+    @staticmethod
+    def meter_per_second(motor_speed):
+        return motor_speed * 1.8 - 0.04 # m/s
 
 

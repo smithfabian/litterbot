@@ -1,6 +1,9 @@
-import math
+import logging
+from logging import handlers
+from pathlib import Path
 import time
 from threading import Lock
+
 from robotics import Robot
 from camera import Camera, camera_config
 from models import CollisionAvoidance, PathFinder
@@ -10,8 +13,21 @@ import numpy as np
 
 from utils import create_grid, Node, astar, paint_line
 
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+log_dir = Path(__file__).parent / "logs"
+log_dir.mkdir(exist_ok=True)
+file_log_handler = logging.FileHandler(log_dir / f"{__name__}.log")
+# buffer_log_handler = logging.handlers.MemoryHandler(10, target=file_log_handler)
+log_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+file_log_handler.setFormatter(log_formatter)
+logger.addHandler(file_log_handler)
+logger.propagate = False
+
 ROWS, COLS = 100, 100
 CELL_SIZE = 0.15 # 15cm
+
 
 class CentralController(Sliders):
     def __init__(self, collision_avoidance=True, path_finder=True, **kwargs):
@@ -34,9 +50,6 @@ class CentralController(Sliders):
             self.theta                      = 0  # Orientation angle in radians
             self.path                       = []
 
-            self.robot.left_motor.observe(self.on_motor_value_change, names='value')
-            self.robot.right_motor.observe(self.on_motor_value_change, names='value')
-
         except Exception:
             self.cleanup()
             raise
@@ -56,24 +69,31 @@ class CentralController(Sliders):
             if path_is_blocked and self.has_path_finder:
                 self.path = self._get_path_around_obsticle()
                 self.robot.turn_to_node((self.x, self.y), self.theta, self.path.pop())
+                self.on_motor_value_change()
                 return # start over to check if path is blocked
             
             elif path_is_blocked and not self.has_path_finder:
                 self.robot.left(speed=self.speed)
+                self.on_motor_value_change()
             
             elif not path_is_blocked and self.path:
                 # # Alternative implementation: Paint line on image and use line follower
                 # image = paint_line(image, self.map, self.path, (self.x, self.y), self.theta)
                 
                 # robot is already turned towards next point
-                speed_mps = self.robot.default_speed * 0.1 - 0.1 # m/s
+                speed_mps = self.robot.meter_per_second(self.robot.default_speed)
                 t = CELL_SIZE / speed_mps
-                self.robot.forward(duration=t)
+                self.robot.forward()
+                self.on_motor_value_change(self.robot.left_motor.value, self.robot.right_motor.value)
+                time.sleep(t)
+                self.robot.stop()
+                self.on_motor_value_change()
                 # self.robot.turn_to_node((self.x, self.y), self.theta, self.path.pop())
                 return
 
             else: # not path_is_blocked and self.has_path_finder:
                 self.robot.forward(speed=self.speed)
+                self.on_motor_value_change()
 
             if self.has_path_finder:
                 # These needs to be tuned
@@ -110,15 +130,15 @@ class CentralController(Sliders):
 
     def _get_path_around_obsticle(self):
         # Register obsticle
-        obstacle_x = int(round(self.x + math.cos(self.theta)))
-        obstacle_y = int(round(self.y + math.sin(self.theta)))
+        obstacle_x = int(round(self.x + np.cos(self.theta)))
+        obstacle_y = int(round(self.y + np.sin(self.theta)))
         if 0 <= obstacle_x < len(self.map) and 0 <= obstacle_y < len(self.map[0]):
             self.map[obstacle_x][obstacle_y] = 1
 
         if self.goal is None:
             # Assumes object is taking up 1 cell and path is directly behind it
-            goal_x = int(round(self.x + 2 * math.cos(self.theta)))
-            goal_y = int(round(self.y + 2 * math.sin(self.theta)))
+            goal_x = int(round(self.x + 2 * np.cos(self.theta)))
+            goal_y = int(round(self.y + 2 * np.sin(self.theta)))
             self.goal = (goal_x, goal_y) 
         
         if (obstacle_x, obstacle_y) == self.goal:
@@ -127,62 +147,56 @@ class CentralController(Sliders):
         return path
 
 
-    def on_motor_value_change(self, change):
+    def on_motor_value_change(self, left_speed=None, right_speed=None):
         # might need to be called in asynchronously 
         current_time = time.time()
+        
+        if left_speed and right_speed:
+            self.left_speed_old = left_speed
+            self.right_speed_old = right_speed
+            
         if self.last_update_time is not None:
             duration = current_time - self.last_update_time
-            # left_speed = change[new] if change['owner'] == self.robot.left_motor
-            # right_speed = change[new] if change['owner'] == self.robot.right_motor
-            self.update_position(self.robot.left_motor.value, self.robot.right_motor.value, duration)
-        self.last_update_time = current_time
+            self.update_position(self.left_speed_old, self.right_speed_old, duration)
+            
+        if left_speed == 0 and right_speed == 0:
+            self.last_update_time = None
+        else:
+            self.last_update_time = current_time
 
     def update_position(self, left_speed, right_speed, duration):
+        left_speed  = self.robot.meter_per_second(left_speed)
+        right_speed = self.robot.meter_per_second(right_speed)
+        
+        logger.debug(f"Updating position: left_speed={left_speed}, right_speed={right_speed}, duration={duration}")
         # Calculate the distance traveled by each wheel
-        left_distance = self.robot.wheel_circumference * left_speed * duration
-        right_distance = self.robot.wheel_circumference * right_speed * duration
-        delta_theta = (right_distance - left_distance) / self.robot.wheelbase
+        left_distance  = left_speed * duration
+        right_distance = right_speed * duration
 
         # straight line motion
-        if left_speed == right_speed:
-            delta_x = left_distance * math.cos(self.theta)
-            delta_y = left_distance * math.sin(self.theta)
+        if np.abs(left_distance - right_distance) < 1.0e-3:
             delta_theta = 0
-            
+            delta_x = left_distance * np.cos(self.theta)
+            delta_y = left_distance * np.sin(self.theta)
 
         # pivot turn (oposite wheel directions and same speed)
-        elif left_speed == -right_speed:
+        elif np.abs(left_distance + right_distance) < 1.0e-3:
+            delta_theta = (right_distance - left_distance) / self.robot.wheelbase
             delta_x = 0
             delta_y = 0
-            # TODO: delta_theta correct?
         
-        # complex turning motion (opposite wheel directions and different speeds)
-        elif left_speed != -right_speed and ((left_speed > 0) ^ (right_speed > 0)):
-            # Calculate the radius from the ICR to the midpoint of the wheelbase
-            R = (self.robot.wheelbase / 2) * ((left_speed + right_speed) / (left_speed - right_speed))
-
-            # Angle traversed by robot (in radians)
-            angle = (right_distance - left_distance) / self.robot.wheelbase
-
-            # Calculate the change in x and y
-            delta_x = R * (math.sin(self.theta + angle) - math.sin(self.theta))
-            delta_y = -R * (math.cos(self.theta + angle) - math.cos(self.theta))
-
-            # Update the robot's orientation
-            self.theta += angle
-            # TODO: delta_theta correct?
-
-        # simple turning motion (same wheel directions and different speeds)
+        # complex turning motion
         else:
-            # Calculate the change in orientation
-            average_theta = self.theta + delta_theta / 2 # Average orientation during the motion
-            delta_x = left_distance * math.cos(average_theta)
-            delta_y = left_distance * math.sin(average_theta)
+            delta_theta = (right_distance - left_distance) / self.robot.wheelbase
+            R = (self.robot.wheelbase / 2) * ((left_distance + right_distance) / (left_distance - right_distance))
+            delta_x =  R * np.sin(delta_theta + self.theta) - R * np.sin(self.theta)
+            delta_y = -R * np.cos(delta_theta + self.theta) + R * np.cos(self.theta)
 
         # Update the robot's position and orientation
-        self.x += delta_x / CELL_SIZE
-        self.y += delta_y / CELL_SIZE
-        self.theta = (self.theta + delta_theta) % (2 * np.pi)  # Keep theta within [0, 2π]
+        self.x += delta_x # / CELL_SIZE
+        self.y += delta_y # / CELL_SIZE
+        self.theta = (self.theta + delta_theta) % (2 * np.pi)
+        logger.debug(f"New position: x={self.x}, y={self.y}, theta={self.theta}")
 
     def start(self):
         self.camera.start()
