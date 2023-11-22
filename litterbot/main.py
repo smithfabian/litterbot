@@ -210,8 +210,9 @@ class CentralController(Sliders):
 
         target_angle = np.arctan2(node[1] * CELL_SIZE - self.y, node[0] * CELL_SIZE - self.x)
         delta_angle = (target_angle - self.theta + np.pi) % (2 * np.pi) - np.pi
-
-        angular_speed = self.robot.meter_per_second(self.robot.default_speed) / self.robot.wheelbase
+        
+        # w=v/r where w:rad/sec v:meters/sec r:m
+        angular_speed = self.robot.meter_per_second(self.robot.default_speed) / (self.robot.wheelbase / 2)
         t = abs(delta_angle) / angular_speed
 
         if delta_angle < 0:
