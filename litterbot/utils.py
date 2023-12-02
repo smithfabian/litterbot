@@ -28,9 +28,19 @@ def create_grid(rows, cols):
     return np.zeros((rows, cols), dtype=np.uint8)
 
 
+def normalize_angle(angle, min_angle=0, max_angle=2*np.pi):
+    range_width = max_angle - min_angle
+    normalized_angle = (angle - min_angle) % range_width + min_angle
+
+    if normalized_angle >= max_angle:
+        normalized_angle -= range_width
+
+    return normalized_angle
+
+
 class Node:
     """A class to represent a node in the A* algorithm."""
-    
+
     __slots__ = ['position', 'parent', 'g', 'h', 'f', 'id']
     _counter = 0
 
@@ -114,18 +124,18 @@ def paint_line(img, grid, path, center, theta, color=(0, 0, 0), thickness=2):
     pts_grid = np.float32([[0, 0], [0, grid.shape[0]], [grid.shape[1], grid.shape[0]], [grid.shape[1], 0]]).reshape(-1, 1, 2)
     # corresponding corners of image
     pts_img = np.float32([[x1, y1], [x2, y2], [x3, y3], [x4, y4]]).reshape(-1, 1, 2) # TODO: find these points
-   
+
     # Create a rotation matrix
     rotation_matrix = cv2.getRotationMatrix2D(center, theta, 1)
     # Apply the rotation to the grid corners
     rotated_pts_grid = cv2.transform(np.array([pts_grid]), rotation_matrix)
-   
+
     M = cv2.getPerspectiveTransform(rotated_pts_grid, pts_img)
     path = np.array(path, dtype=np.float32) # only use first 3 points
     path_transformed = cv2.perspectiveTransform(path.reshape(-1, 1, 2), M)
     for i in range(len(path_transformed) - 1):
         cv2.line(img, tuple(path_transformed[i][0]), tuple(path_transformed[i + 1][0]), color=color, thickness=thickness)
-    
+
     return img
 
 
@@ -133,12 +143,12 @@ class Sliders(HasTraits):
     """A class to create sliders in notebook for the litterbot."""
     def __init__(self, **kwargs):
         super().__init__()
-        
+
         for key, obj in kwargs.items():
             if isinstance(obj, HasTraits) and hasattr(obj, 'value'):
                 setattr(self, key, obj.value)
-                
+
                 def _observer_callback(change, name=key):
                     setattr(self, name, change.new)
-                
+
                 obj.observe(_observer_callback, names='value')

@@ -27,7 +27,7 @@ class ModelBase:
 
         #self.mean       = pixel_range * np.array([RGB_mean])
         #self.stdev      = pixel_range * np.array([RGB_stdev])
-        
+
     def _load_model(self, model_path):
         if self.model_type == "alexnet":
             model = torchvision.models.alexnet(pretrained=False)
@@ -44,7 +44,7 @@ class ModelBase:
 
         else:
             raise NotImplementedError(f"Model {self.model_type} not implemented")
-        
+
         return model
 
     def preprocess(self, frame):
@@ -56,7 +56,7 @@ class ModelBase:
             frame = normalize(frame)
             frame = frame.to(self.device)
             frame = frame.unsqueeze(0)
-        
+
         elif self.model_type == "resnet18":
             frame = PIL.Image.fromarray(frame)
             frame = transforms.functional.to_tensor(frame).to(self.device).half()
@@ -68,17 +68,17 @@ class ModelBase:
 
         else:
             raise NotImplementedError(f"Model {self.model_type} not implemented")
-        
+
         return frame
 
     def run(frame):
         raise NotImplementedError
-    
+
 
 class CollisionAvoidance(ModelBase):
     def __init__(self, model_path, model_type, pixel_range=255.0, RGB_mean=[0.485, 0.456, 0.406], RGB_stdev=[0.229, 0.224, 0.225], device=None):
         super().__init__(model_path, model_type, pixel_range, RGB_mean, RGB_stdev, device)
-        self.threshold = 0.7 
+        self.threshold = 0.8
 
     def run(self, frame):
         frame = self.preprocess(frame)
@@ -86,12 +86,12 @@ class CollisionAvoidance(ModelBase):
         frame = F.softmax(frame, dim=1)
         prob_blocked = float(frame.flatten()[0])
         logger.debug(f"Prob blocked: {round(prob_blocked, 2)}")
-        
+
         if prob_blocked < self.threshold:
             return "forward"
         else:
             return "stop"
-        
+
     def is_blocked(self, frame):
         action = self.run(frame)
         return True if action == "stop" else False
