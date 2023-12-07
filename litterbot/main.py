@@ -45,6 +45,7 @@ class CentralController(HasTraits):
             self.path_theta                 = None
             self.theta                      = np.pi / 2  # Orientation angle in radians
             self.path                       = []
+            self.next_node                  = None
 
         except Exception:
             self.cleanup()
@@ -68,7 +69,7 @@ class CentralController(HasTraits):
                 self.update_position(distance, angle)
                 self.path = self.get_path_around_obsticle()
                 logger.debug(f"Found a new path around object: {self.path}")
-                self.turn_to_node(self.path)
+                self.next_node = self.turn_to_node(self.path)
                 return # start over to check if path is blocked
 
             elif path_is_blocked and not self.has_path_finder:
@@ -83,15 +84,8 @@ class CentralController(HasTraits):
                 # image = paint_line(image, self.map, self.path, (self.x, self.y), self.theta)
 
                 # robot is already turned towards next point
-                t = self.CELL_SIZE / self.robot.meter_per_second(self.robot.default_speed)
-                distance, angle = self.robot.forward()
-                self.update_position(distance, angle)
-                # self.on_motor_value_change(self.robot.default_speed, self.robot.default_speed)
-                time.sleep(t)
-                distance, angle = self.robot.stop()
-                self.update_position(distance, angle)
-                # self.on_motor_value_change()
-                self.turn_to_node(self.path)
+                self.drive_to_node(self.next_node)
+                self.next_node = self.turn_to_node(self.path)
                 if not self.path:
                     self.turn_to_node(False) # Will turn robot to the path orientation
 
@@ -237,6 +231,17 @@ class CentralController(HasTraits):
         self.theta = (self.theta + delta_theta) % (2 * np.pi)
         logger.debug(f"New position: x={round(self.x, 2)}, y={round(self.y, 2)}, theta={round(self.theta, 3)}")
 
+    def drive_to_node(self, node):
+        # Calculate the Euclidean distance from the current position to the node
+        distance_in_cells = ((node[0] - self.x) ** 2 + (node[1] - self.y) ** 2) ** 0.5
+        distance = distance_in_cells * self.CELL_SIZE
+        t = distance / self.robot.meter_per_second(self.robot.default_speed)
+        distance_travelled, angle = self.robot.forward()
+        self.update_position(distance_travelled, angle)
+        time.sleep(t)
+        distance_travelled, angle = self.robot.stop()
+        self.update_position(distance_travelled, angle)
+
     def turn_to_node(self, path):
         if path:
             node = path.pop(0)
@@ -246,6 +251,7 @@ class CentralController(HasTraits):
             target_angle = self.path_theta
             path_theta = None
             self.goal = None
+            node = None
 
         delta_angle = normalize_angle(target_angle - self.theta, min_angle=-np.pi, max_angle=np.pi)
         # delta_angle = (target_angle - self.theta + np.pi) % (2 * np.pi) - np.pi
@@ -268,6 +274,8 @@ class CentralController(HasTraits):
         distance, angle = self.robot.stop()
         self.update_position(distance, angle)
         # self.on_motor_value_change(left_speed=self.robot.default_speed, right_speed=self.robot.default_speed)
+
+        return Node
 
     def start(self):
         self.camera.start()
